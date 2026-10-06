@@ -1,63 +1,54 @@
-// SPDX-License-Identifier: BSD-2-Clause
-#include "xdev/doctor.hpp"
-#include "xdev/process.hpp"
-#include "xdev/platform.hpp"
-#include "xdev/workspace.hpp"
-#include <iostream>
+#include "doctor.hpp"
+#include "setup.hpp"
+#include "common.hpp"
 
 namespace xdev {
+    bool Doctor::check_environment(bool auto_fix) {
+        log_info("Running environment diagnostics (xdev doctor)...");
 
-int Doctor::execute() {
-    std::cout << "xdev Doctor - Environment Audit\n";
-    std::cout << "---------------------------------\n";
-    std::cout << "Platform: " << Platform::get_os() << " (" << Platform::get_architecture() << ")\n\n";
+        bool all_passed = true;
 
-    bool healthy = true;
-
-    auto check_tool = [&](const std::string& name, const std::string& check_cmd) {
-        std::string full_cmd = (Platform::get_os() == "Windows") 
-            ? check_cmd + " >nul 2>nul" 
-            : check_cmd + " > /dev/null 2>&1";
-
-        if (Process::run(full_cmd).exit_code == 0) {
-            std::cout << "  [ OK ] " << name << "\n";
+        // 1. Check XENEVA_PROJECT environment variable
+        fs::path xeneva_root = get_xeneva_root();
+        if (xeneva_root.empty() || !fs::exists(xeneva_root)) {
+            log_error("XENEVA_PROJECT environment variable is missing or points to an invalid path!");
+            log_warn("Please set it using: export XENEVA_PROJECT=/path/to/xenevaos (or setx on Windows)");
+            all_passed = false;
         } else {
-            std::cout << "  [FAIL] " << name << " (Not found or failed)\n";
-            healthy = false;
+            log_info("XENEVA_PROJECT verified at: " + xeneva_root.string());
         }
-    };
 
-    std::cout << "Build Tools:\n";
-    check_tool("Git", "git --version");
-    check_tool("CMake", "cmake --version");
-    check_tool("Ninja", "ninja --version");
-    check_tool("Clang", "clang --version");
-    check_tool("LLD (ld.lld)", "ld.lld --version");
-    check_tool("NASM", "nasm -v");
-    check_tool("Python 3", "python3 --version");
-    
-    std::cout << "\nRuntime & Packaging:\n";
-    check_tool("QEMU AArch64", "qemu-system-aarch64 --version");
-    check_tool("mtools (mcopy)", "mcopy -V");
-    check_tool("cURL", "curl --version");
+        // 2. Check binary tools availability
+#if defined(_WIN32) || defined(_WIN64)
+        int qemu_check = execute("C:\\msys64\\usr\\bin\\bash.exe -lc \"which qemu-system-aarch64 >nul 2>&1\"");
+#else
+        int qemu_check = execute("which qemu-system-aarch64 >/dev/null 2>&1");
+#endif
 
-    std::cout << "\nXenevaOS Repository:\n";
-    auto ws = Workspace::locate();
-    if (ws.has_value()) {
-        std::cout << "  [ OK ] Detected repository at: " << ws->root_path << "\n";
-        std::cout << "  [ OK ] Linux AArch64 workflow present\n";
-    } else {
-        std::cout << "  [WARN] No XenevaOS repository found in current directory or ../XenevaOS.\n";
-    }
+        if (qemu_check != 0) {
+            log_warn("Required tool 'qemu-system-aarch64' not found in path.");
+            all_passed = false;
+        } else {
+            log_info("QEMU AArch64 system emulator found.");
+        }
 
-    std::cout << "---------------------------------\n";
-    if (healthy) {
-        std::cout << "Result: System is ready for AArch64 XenevaOS development.\n";
-        return 0;
-    } else {
-        std::cout << "Result: Missing dependencies. Please install the failed tools.\n";
-        return 1;
+        // 3. Trigger automatic setup if checks failed
+        if (!all_passed) {
+            if (auto_fix) {
+                log_warn("Some dependencies are missing. Automatically triggering 'xdev setup'...");
+                if (Setup::run_setup()) {
+                    log_info("Setup completed successfully. Re-running diagnostics...");
+                    return check_environment(false); // Re-run once without looping
+                } else {
+                    log_error("Automated setup failed.");
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        log_info("All system diagnostics passed successfully!");
+        return true;
     }
 }
-
-} // namespace xdev

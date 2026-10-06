@@ -1,72 +1,46 @@
-#include "xdev/fetch.hpp"
-#include "xdev/process.hpp"
-#include <iostream>
-#include <filesystem>
-
-namespace fs = std::filesystem;
+#include "fetch.hpp"
+#include "common.hpp"
 
 namespace xdev {
+    bool Fetch::fetch_assets() {
+        log_info("Fetching required XenevaOS assets and images...");
 
-bool Fetch::download_file(const std::string& url, const std::string& destination) {
-    if (fs::exists(destination) && fs::file_size(destination) > 0) {
-        std::cout << "  [ OK ] Already cached: " << destination << "\n";
-        return true;
-    }
-
-    std::cout << "  [DOWNLOADING] " << url << "\n";
-    std::string cmd = "curl -L --fail --create-dirs -o \"" + destination + "\" \"" + url + "\"";
-    
-    int code = Process::run_interactive(cmd);
-    if (code == 0 && fs::exists(destination) && fs::file_size(destination) > 0) {
-        std::cout << "  [ OK ] Saved to " << destination << "\n";
-        return true;
-    }
-
-    std::cerr << "  [FAIL] Failed to download: " << url << "\n";
-    return false;
-}
-
-int Fetch::execute() {
-    std::cout << "xdev Fetch - Ecosystem Artifact Manager\n";
-    std::cout << "----------------------------------------\n";
-
-    // 1. Establish cache directory
-    std::string artifact_dir = "artifacts";
-    try {
-        fs::create_directories(artifact_dir);
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating artifacts directory: " << e.what() << "\n";
-        return 1;
-    }
-
-    bool success = true;
-
-    // 2. Fetch official Alpha 0.2 initrd ramdisk
-    std::string initrd_url = "https://github.com/manaskamal/XenevaOS/releases/download/xenevaos-ui-alpha-0.2/initrd3.img";
-    std::string initrd_dest = artifact_dir + "/initrd3.img";
-    if (!download_file(initrd_url, initrd_dest)) {
-        success = false;
-    }
-
-    // 3. Fetch gnu-efi repository if developer environment
-    if (!fs::exists("artifacts/gnu-efi")) {
-        std::cout << "  [CLONING] gnu-efi headers into " << artifact_dir << "/gnu-efi...\n";
-        int res = Process::run_interactive("git clone --depth 1 https://github.com/vathpela/gnu-efi.git artifacts/gnu-efi");
-        if (res != 0) {
-            std::cerr << "  [WARN] Failed to clone gnu-efi headers.\n";
+        fs::path xeneva_root = get_xeneva_root();
+        if (xeneva_root.empty()) {
+            log_error("XENEVA_PROJECT environment variable is not set. Run 'xdev doctor' first.");
+            return false;
         }
-    } else {
-        std::cout << "  [ OK ] Already cached: " << artifact_dir << "/gnu-efi\n";
-    }
 
-    std::cout << "----------------------------------------\n";
-    if (success) {
-        std::cout << "Result: All target artifacts fetched and ready.\n";
-        return 0;
-    } else {
-        std::cerr << "Result: One or more artifacts failed to download.\n";
-        return 1;
+        // Create a build/assets directory inside the project root if it doesn't exist
+        fs::path asset_dir = xeneva_root / "build" / "assets";
+        if (!fs::exists(asset_dir)) {
+            fs::create_directories(asset_dir);
+        }
+
+        fs::path initrd3_path = asset_dir / "initrd3.img";
+
+        // Check if initrd3.img already exists
+        if (fs::exists(initrd3_path)) {
+            log_info("initrd3.img is already present at: " + initrd3_path.string());
+            return true;
+        }
+
+        log_info("Downloading initrd3.img from GitHub Releases...");
+        std::string url = "https://github.com/manaskamal/XenevaOS/releases/download/xenevaos-ui-alpha-0.2/initrd3.img";
+        
+        // Use curl or powershell (Invoke-WebRequest) depending on platform
+#if defined(_WIN32) || defined(_WIN64)
+        std::string download_cmd = "powershell -Command \"Invoke-WebRequest -Uri '" + url + "' -OutFile '" + initrd3_path.string() + "'\"";
+#else
+        std::string download_cmd = "curl -L -o \"" + initrd3_path.string() + "\" \"" + url + "\"";
+#endif
+
+        if (execute(download_cmd) != 0) {
+            log_error("Failed to download initrd3.img from release URL.");
+            return false;
+        }
+
+        log_info("Successfully downloaded initrd3.img!");
+        return true;
     }
 }
-
-} // namespace xdev
