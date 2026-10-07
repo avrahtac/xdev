@@ -8,8 +8,9 @@ import sys
 import os
 import subprocess
 import shutil
+import urllib.request
 
-XDEV_VERSION = "1.0.0"
+XDEV_VERSION = "1.3.0"
 
 COMMANDS_SUMMARY = """usage: xdev <command> [<args>]
 
@@ -44,8 +45,6 @@ def get_xeneva_project():
 
 def run_doctor():
     all_ok = True
-
-    # 1. Environment variable check
     xeneva_proj = os.environ.get("XENEVA_PROJECT")
     if xeneva_proj and os.path.isdir(xeneva_proj):
         print(f"XENEVA_PROJECT: {xeneva_proj}")
@@ -56,7 +55,6 @@ def run_doctor():
         print("XENEVA_PROJECT: not set")
         all_ok = False
 
-    # 2. Tool checks
     tools = [
         ("git", ["git", "--version"]),
         ("clang", [r"C:\msys64\ucrt64\bin\clang.exe", "--version"] if os.name == 'nt' else ["clang", "--version"]),
@@ -72,7 +70,6 @@ def run_doctor():
             if res.returncode == 0:
                 first_line = res.stdout.splitlines()[0] if res.stdout else "available"
                 print(f"  found {name:<20} -> {first_line}")
-                print(f"--> WATCHING COMMAND: {' '.join(cmd)}")
             else:
                 print(f"  missing {name}")
                 all_ok = False
@@ -82,6 +79,12 @@ def run_doctor():
 
     return 0 if all_ok else 1
 
+def download_progress(count, block_size, total_size):
+    if total_size > 0:
+        percent = int(count * block_size * 100 / total_size)
+        sys.stdout.write(f"\r  Downloading master image container... {min(percent, 100)}%")
+        sys.stdout.flush()
+
 def run_build(extra_args=None):
     if extra_args is None:
         extra_args = []
@@ -90,7 +93,6 @@ def run_build(extra_args=None):
     if not xeneva_proj:
         return 1
 
-    # Locate make binary
     make_bin = None
     if os.name == 'nt' and os.path.exists(r"C:\msys64\usr\bin\make.exe"):
         make_bin = r"C:\msys64\usr\bin\make.exe"
@@ -110,13 +112,6 @@ def run_build(extra_args=None):
             env["PATH"] = ";".join(additions) + ";" + existing_path
         env["MSYSTEM"] = "UCRT64"
 
-    # --- DEBUG / VERBOSE LOGS (Added here where variables are initialized) ---
-    print(f"DEBUG: Working Directory -> {xeneva_proj}")
-    print(f"DEBUG: Make Binary -> {make_bin}")
-    print(f"DEBUG: PATH env -> {env.get('PATH')}")
-    # ------------------------------------------------------------------------
-
-    # If user provided explicit arguments:
     if extra_args:
         first = extra_args[0]
         if first in ("BootAA64", "KernelAA64", "Boot", "Kernel"):
@@ -155,14 +150,13 @@ def run_build(extra_args=None):
                 sys.stderr.write(f"xdev: error running make: {e}\n")
                 return 1
 
-    # Default build when no extra arguments are passed:
     core_components = [
         ("Libs/XEClib", ["llvm"]),
         ("Libs/Chitralekha", ["llvm"]),
         ("BootAA64", ["llvm"]),
         ("KernelAA64", ["llvm"])
     ]
-    # ... (rest of function remains unchanged)
+
     has_os_components = os.path.exists(os.path.join(xeneva_proj, "BootAA64", "Makefile"))
 
     if has_os_components:
@@ -177,29 +171,51 @@ def run_build(extra_args=None):
                     sys.stderr.write(f"xdev: error building component {comp}\n")
                     return res.returncode
 
-        # Sync compiled binaries and initrd resource image to fat.img
-        fat_img = os.path.join(xeneva_proj, "fat.img")
-        boot_efi = os.path.join(xeneva_proj, "BootAA64", "Build", "EFI", "BOOT", "BOOTAA64.efi")
-        kernel_exe = os.path.join(xeneva_proj, "KernelAA64", "KernelAA64.exe")
-        initrd_img = os.path.join(xeneva_proj, "initrd2.img")
-        mcopy_bin = r"C:\msys64\ucrt64\bin\mcopy.exe" if os.name == 'nt' else shutil.which("mcopy")
+        # --- Master Image Handling & Synchronization ---
+        master_img = os.path.join(xeneva_proj, "initrd3.img")
+        
+        if not os.path.exists(master_img):
+            print("xdev: initrd3.img not found locally. Fetching latest release from GitHub...")
+            initrd_url = "https://github.com/manaskamal/XenevaOS/releases/download/xenevaos-ui-alpha-0.2/initrd3.img"
+            try:
+                urllib.request.urlretrieve(initrd_url, master_img, reporthook=download_progress)
+                print("\nxdev: download complete.")
+            except Exception as e:
+                print()
+                sys.stderr.write(f"xdev: error downloading initrd3.img: {e}\n")
 
-        if mcopy_bin and os.path.exists(fat_img):
-            print("xdev: updating fat.img filesystem...")
+        boot_efi = os.path.join(xeneva_proj, "BootAA64", "Build", "EFI", "BOOT", "BOOTAA64.EFI")
+        if not os.path.exists(boot_efi):
+            boot_efi = os.path.join(xeneva_proj, "BootAA64", "BOOTAA64.efi")
+
+        kernel_exe = os.path.join(xeneva_proj, "KernelAA64", "KernelAA64.exe")
+        mcopy_bin = r"C:\msys64\ucrt64\bin\mcopy.exe" if os.name == 'nt' else shutil.which("mcopy")
+        mmd_bin = r"C:\msys64\ucrt64\bin\mmd.exe" if os.name == 'nt' else shutil.which("mmd")
+
+        if mcopy_bin and os.path.exists(master_img):
+            print("xdev: synchronizing binaries into master container filesystem...")
+            if mmd_bin and os.path.exists(mmd_bin):
+                subprocess.run([mmd_bin, "-D", "s", "-i", master_img, "::/EFI"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([mmd_bin, "-D", "s", "-i", master_img, "::/EFI/BOOT"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([mmd_bin, "-D", "s", "-i", master_img, "::/EFI/XENEVA"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
             if os.path.exists(boot_efi):
-                subprocess.run([mcopy_bin, "-o", "-i", fat_img, boot_efi, "::/EFI/BOOT/BOOTAA64.EFI"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([mcopy_bin, "-o", "-i", master_img, boot_efi, "::/EFI/BOOT/BOOTAA64.EFI"])
+            else:
+                sys.stderr.write("xdev: error: BOOTAA64.efi not found!\n")
+
             if os.path.exists(kernel_exe):
-                subprocess.run([mcopy_bin, "-o", "-i", fat_img, kernel_exe, "::/EFI/XENEVA/xnkrnl.exe"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(initrd_img):
-                subprocess.run([mcopy_bin, "-o", "-i", fat_img, initrd_img, "::/initrd2.img"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run([mcopy_bin, "-o", "-i", master_img, kernel_exe, "::/EFI/XENEVA/xnkrnl.exe"])
+
+            # Sync local initrd2.img layer if available to match desktop configuration
+            local_initrd2 = os.path.join(xeneva_proj, "initrd2.img")
+            if os.path.exists(local_initrd2):
+                print("xdev: synchronizing local initrd2.img payload layer...")
+                subprocess.run([mcopy_bin, "-o", "-i", master_img, local_initrd2, "::/initrd2.img"])
 
         print("xdev: build complete successfully.")
         return 0
     else:
-        # Standard root makefile build
         cmd = [make_bin]
         try:
             res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
@@ -210,23 +226,15 @@ def run_build(extra_args=None):
 
 def find_compiled_image(project_dir):
     candidates = [
+        "initrd3.img",
         "fat.img",
-        "xeneva.iso",
         "initrd2.img",
-        "initrd.img",
-        os.path.join("Build", "fat.img"),
-        os.path.join("build", "fat.img")
+        os.path.join("Build", "initrd3.img")
     ]
     for rel in candidates:
         full = os.path.join(project_dir, rel)
         if os.path.isfile(full):
             return full
-    try:
-        for fname in os.listdir(project_dir):
-            if fname.endswith((".img", ".iso")):
-                return os.path.join(project_dir, fname)
-    except OSError:
-        pass
     return None
 
 def find_qemu_binary():
@@ -255,7 +263,6 @@ def find_uefi_firmware():
     return None
 
 def _probe_qemu_audio(qemu_bin):
-    """Return the best available QEMU audio backend for the current platform."""
     try:
         probe = subprocess.run(
             [qemu_bin, "-audiodev", "help"],
@@ -270,7 +277,6 @@ def _probe_qemu_audio(qemu_bin):
     return "none"
 
 def _inject_nomenu_marker(fat_img, mcopy_bin):
-    """Write a zero-byte NOMENU marker into fat.img so the UEFI menu is skipped."""
     import tempfile
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix="NOMENU") as tmp:
@@ -281,7 +287,7 @@ def _inject_nomenu_marker(fat_img, mcopy_bin):
         )
         os.unlink(tmp_path)
     except Exception:
-        pass  # Non-fatal — menu will still appear
+        pass
 
 def run_qemu(extra_args=None):
     if extra_args is None:
@@ -293,7 +299,7 @@ def run_qemu(extra_args=None):
 
     img_path = find_compiled_image(xeneva_proj)
     if not img_path:
-        sys.stderr.write("xdev: error: compiled OS image (fat.img) not found in XENEVA_PROJECT. Run 'xdev build' first.\n")
+        sys.stderr.write("xdev: error: compiled OS image not found in XENEVA_PROJECT. Run 'xdev build' first.\n")
         return 1
 
     qemu_name, qemu_bin = find_qemu_binary()
@@ -301,8 +307,7 @@ def run_qemu(extra_args=None):
         sys.stderr.write("xdev: error: QEMU binary not found\n")
         return 1
 
-    # --- Parse xdev-specific run flags (consume before passing remainder to QEMU) ---
-    resolution = "640x480"   # default: lowest resolution so the menu isn't needed
+    resolution = "640x480"
     memory = "1024M"
     smp = "2"
     no_boot_menu = False
@@ -326,10 +331,6 @@ def run_qemu(extra_args=None):
         else:
             qemu_passthrough.append(arg)
 
-    # When a non-default resolution is chosen we must let the boot menu appear
-    # so the user can pick it (the UEFI menu lists: 640x480, 800x600, 1024x768).
-    # With --no-boot-menu we inject the NOMENU marker so UEFI skips straight to
-    # the default (640x480) and the resolution flag is silently ignored.
     if no_boot_menu:
         mcopy_bin = (
             r"C:\msys64\ucrt64\bin\mcopy.exe"
@@ -347,36 +348,25 @@ def run_qemu(extra_args=None):
         audio_backend = _probe_qemu_audio(qemu_bin)
 
         cmd.extend([
-            # Machine — GIC v2, no high memory (required by KernelAA64)
             "-machine", "virt,gic-version=2,highmem=off",
             "-cpu", "cortex-a72",
             "-smp", smp,
             "-m", memory,
-            # Block device — explicit modern-only virtio-blk-pci (disable-legacy=on)
-            # so the device lands at PCI ID 1af4:1042 that the kernel's blk driver expects
             "-drive", f"file={img_path},format=raw,if=none,id=blk0",
             "-device", "virtio-blk-pci,drive=blk0,disable-legacy=on",
-            # Network
             "-netdev", "user,id=net0,ipv4=on,net=10.0.2.0/24,host=10.0.2.2,"
                        "dhcpstart=10.0.2.15,dns=10.0.2.3,"
                        "ipv6=on,ipv6-net=fec0::/64,ipv6-host=fec0::2",
             "-device", "virtio-net-pci,netdev=net0",
-            # Display — ramfb FIRST (boot/GOP framebuffer), then virtio-gpu-pci.
-            # The compositor moves to virtio-gpu after boot; ramfb then goes black.
-            # Reversing this order breaks the boot-time resolution menu rendering.
             "-device", "ramfb,id=ramfb",
             "-device", "virtio-gpu-pci,disable-legacy=on,id=gpu0",
-            # Input — no disable-legacy on keyboard/tablet (matches reference script)
             "-device", "virtio-keyboard-pci",
             "-device", "virtio-tablet-pci",
             "-device", "usb-ehci",
             "-device", "usb-kbd",
-            # RNG
             "-device", "virtio-rng-pci,disable-legacy=on,id=rng0",
-            # Audio
             "-audiodev", f"{audio_backend},id=snd0",
             "-device", "virtio-sound-pci,audiodev=snd0,disable-legacy=on",
-            # Serial: stdio (console) + null (BT UART slot at 0x09040000)
             "-serial", "stdio",
             "-serial", "null",
         ])
@@ -385,10 +375,6 @@ def run_qemu(extra_args=None):
             cmd.extend(["-display", "none", "-no-reboot"])
         else:
             cmd.extend(["-display", "gtk,zoom-to-fit=on,show-tabs=on"])
-
-        if resolution != "640x480" and not no_boot_menu and not headless:
-            print(f"xdev: resolution {resolution} selected — use the UEFI boot menu to choose it.")
-            print("xdev: tip: use --no-boot-menu to skip the menu and boot at 640x480.")
 
     else:
         cmd.extend([
