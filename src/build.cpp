@@ -53,7 +53,8 @@ namespace xdev {
             
             if (path_str.find("gnu-efi") != std::string::npos || 
                 path_str.find("Build") != std::string::npos ||
-                path_str.find("CMakeFiles") != std::string::npos) {
+                path_str.find("CMakeFiles") != std::string::npos ||
+                path_str.find("Tools") != std::string::npos) {
                 continue;
             }
 
