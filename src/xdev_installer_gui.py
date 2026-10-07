@@ -1,4 +1,3 @@
-#
 # Copyright (c) 2026 Manas Kamal Choudhary and XenevaOS Team
 # All rights reserved.
 #
@@ -174,7 +173,6 @@ class XdevSetupWizard:
         self.root.after(50, self.process_queue)
 
     def check_c_drive_space(self, min_gb=5.0):
-        """Verify whether C drive free disk space is greater than min_gb."""
         target_path = "C:\\" if os.name == 'nt' else "/"
         try:
             total, used, free = shutil.disk_usage(target_path)
@@ -249,88 +247,72 @@ class XdevSetupWizard:
             self.ui_queue.put(("LOG", None, f"\n[ERROR] Exited with code {process.returncode}\n"))
             raise subprocess.CalledProcessError(process.returncode, cmd_str)
 
-        # Before running pacman commands, update pacman.conf to ignore core runtime locks and mirror timeouts
-    
-
     def init_pacman_keys_and_sync(self, max_retries=3, timeout_seconds=120):
-        """
-        Initializes pacman keyring and synchronizes package repositories,
-        handling potential network timeouts gracefully with retries and fallback.
-        """
         bash_bin = r"C:\msys64\usr\bin\bash.exe"
         if not os.path.exists(bash_bin):
             bash_bin = "bash"
 
-        # 1. Local Key Initialization & Population
         self.ui_queue.put(("STATUS", "Initializing pacman local keyring...", None))
         cmd_keys = f'{bash_bin} -lc "pacman-key --init && pacman-key --populate msys2"'
         try:
-            self.execute_command(
-                cmd_keys,
-                "Initializing pacman local keys...",
-                stream=True,
-                timeout=timeout_seconds
-            )
+            self.execute_command(cmd_keys, "Initializing pacman local keys...", stream=True, timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            self.ui_queue.put(("LOG", None, "> [WARN] pacman-key initialization timed out; continuing with existing keyring...\n"))
+            self.ui_queue.put(("LOG", None, "> [WARN] pacman-key initialization timed out; continuing...\n"))
         except subprocess.CalledProcessError as e:
-            self.ui_queue.put(("LOG", None, f"> [WARN] pacman-key finished with code {e.returncode}. Continuing with repository sync...\n"))
+            self.ui_queue.put(("LOG", None, f"> [WARN] pacman-key finished with code {e.returncode}.\n"))
 
-        # 2. Repository Synchronization with graceful retry on network timeouts
         cmd_sync = f'{bash_bin} -lc "pacman -Sy --noconfirm"'
-        synced = False
         for attempt in range(1, max_retries + 1):
             try:
-                status_msg = f"Syncing MSYS2 repositories (attempt {attempt}/{max_retries})..."
-                self.execute_command(
-                    cmd_sync,
-                    status_msg,
-                    stream=True,
-                    timeout=timeout_seconds
-                )
-                synced = True
+                self.execute_command(cmd_sync, f"Syncing MSYS2 repositories (attempt {attempt}/{max_retries})...", stream=True, timeout=timeout_seconds)
                 self.ui_queue.put(("LOG", None, "> MSYS2 repository sync completed successfully.\n"))
                 break
             except subprocess.TimeoutExpired:
-                self.ui_queue.put(("LOG", None, f"> [WARN] Network timeout occurred during repository sync on attempt {attempt}/{max_retries}.\n"))
-                if attempt < max_retries:
-                    self.ui_queue.put(("LOG", None, "> Retrying repository sync in 3 seconds...\n"))
-                    time.sleep(3)
-                else:
-                    self.ui_queue.put(("LOG", None, "> [WARN] All repository sync attempts timed out due to network issues.\n"))
-                    self.ui_queue.put(("LOG", None, "> Attempting to proceed with cached package databases...\n"))
-            except subprocess.CalledProcessError as cpe:
-                self.ui_queue.put(("LOG", None, f"> [WARN] Sync command returned code {cpe.returncode} on attempt {attempt}/{max_retries}.\n"))
                 if attempt < max_retries:
                     time.sleep(3)
-                else:
-                    self.ui_queue.put(("LOG", None, "> [WARN] Proceeding with existing package databases.\n"))
+            except subprocess.CalledProcessError:
+                if attempt < max_retries:
+                    time.sleep(3)
 
     def run_setup(self):
         try:
-            # 1. Permanent Installation Directory
             target_install_dir = r"C:\Program Files\xdev"
             os.makedirs(target_install_dir, exist_ok=True)
 
             self.ui_queue.put(("STATUS", "Deploying xdev CLI binaries...", None))
             self.ui_queue.put(("LOG", None, f"\n[Installing xdev to {target_install_dir}]\n"))
 
-            # 2. Deploy xdev.exe to C:\Program Files\xdev\
+            # --- ROBUST BINARY RESOLUTION (Checks dist/ folders and workspace) ---
             installer_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            src_xdev = os.path.join(installer_dir, "xdev.exe")
-            dst_xdev = os.path.join(target_install_dir, "xdev.exe")
+            possible_xdev_paths = [
+                os.path.join(installer_dir, "xdev.exe"),
+                os.path.join(installer_dir, "dist", "xdev.exe"),
+                os.path.join(os.path.dirname(installer_dir), "dist", "xdev.exe"),
+                os.path.join(os.path.dirname(installer_dir), "xdev.exe"),
+            ]
+            repo_val = self.repo_path.get()
+            if repo_val:
+                possible_xdev_paths.append(os.path.join(repo_val, "dist", "xdev.exe"))
+                possible_xdev_paths.append(os.path.join(repo_val, "xdev.exe"))
 
-            if os.path.exists(src_xdev):
+            src_xdev = None
+            for p in possible_xdev_paths:
+                if p and os.path.exists(p):
+                    src_xdev = p
+                    break
+
+            dst_xdev = os.path.join(target_install_dir, "xdev.exe")
+            if src_xdev and os.path.exists(src_xdev):
                 shutil.copy2(src_xdev, dst_xdev)
-                self.ui_queue.put(("LOG", None, f"> Deployed xdev.exe to {dst_xdev}\n"))
+                self.ui_queue.put(("LOG", None, f"> Deployed xdev.exe from {src_xdev} to {dst_xdev}\n"))
             else:
-                self.ui_queue.put(("LOG", None, f"> Note: xdev.exe not found at {src_xdev}.\n"))
+                self.ui_queue.put(("LOG", None, f"> [WARN] xdev.exe not found in build/dist locations. Ensure xdev.exe is built or present.\n"))
 
             # 3. Configure Repository Environment Variable
             cmd_setx = f'setx XENEVA_PROJECT "{self.repo_path.get()}"'
             self.execute_command(cmd_setx, "Configuring XENEVA_PROJECT environment variable...", stream=False)
 
-            # 4. Register Path via winreg to prevent 1024-char corruption and force global recognition
+            # 4. Register Path via winreg
             self.ui_queue.put(("STATUS", "Configuring System PATH environment variables...", None))
             msys_bin = r"C:\msys64\ucrt64\bin"
 
@@ -352,7 +334,6 @@ class XdevSetupWizard:
                 winreg.SetValueEx(reg_key, "Path", 0, winreg.REG_EXPAND_SZ, new_user_path)
                 winreg.CloseKey(reg_key)
 
-                # Broadcast system setting change to Explorer & Windows Shells
                 HWND_BROADCAST = 0xFFFF
                 WM_SETTINGCHANGE = 0x001A
                 SMTO_ABORTIFHUNG = 0x0002
@@ -368,41 +349,26 @@ class XdevSetupWizard:
 
             # 5. Git Check / Install
             cmd_git = "winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity"
-            self.execute_command(
-                cmd_git, 
-                "Ensuring Git is installed...", 
-                stream=True, 
-                allowed_exit_codes=WINGET_NO_UPDATE_CODES
-            )
+            self.execute_command(cmd_git, "Ensuring Git is installed...", stream=True, allowed_exit_codes=WINGET_NO_UPDATE_CODES)
 
-            # 5b. Pre-check C: Drive Disk Space (> 5 GB required) before MSYS2 download
+            # 5b. Pre-check C: Drive Disk Space
             self.ui_queue.put(("STATUS", "Verifying C: drive available disk space...", None))
             has_space, free_gb = self.check_c_drive_space(min_gb=5.0)
             if not has_space:
-                err_msg = f"Insufficient disk space on C: drive: {free_gb:.2f} GB available, >5.0 GB required."
-                self.ui_queue.put(("STATUS", "Setup aborted: Insufficient disk space on C: drive.", None))
-                self.ui_queue.put(("LOG", None, f"\n[ERROR] {err_msg}\n"))
-                raise RuntimeError(err_msg)
-            else:
-                self.ui_queue.put(("LOG", None, f"> Disk space pre-check passed: {free_gb:.2f} GB free on C: drive (>5 GB required).\n"))
+                raise RuntimeError(f"Insufficient disk space on C: drive: {free_gb:.2f} GB available, >5.0 GB required.")
 
             # 6. MSYS2 Check / Install
             if not os.path.exists(r"C:\msys64"):
                 cmd_msys = "winget install --id MSYS2.MSYS2 -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity"
-                self.execute_command(
-                    cmd_msys, 
-                    "Installing MSYS2...", 
-                    stream=True, 
-                    allowed_exit_codes=WINGET_NO_UPDATE_CODES
-                )
+                self.execute_command(cmd_msys, "Installing MSYS2...", stream=True, allowed_exit_codes=WINGET_NO_UPDATE_CODES)
             else:
                 self.ui_queue.put(("LOG", None, "> MSYS2 found at C:\\msys64. Skipping Winget install.\n"))
 
-            # 7. Pacman Keys & Repository Synchronization (handles potential network timeouts)
+            # 7. Pacman Keys & Repository Synchronization
             self.init_pacman_keys_and_sync(max_retries=3, timeout_seconds=120)
 
             # 8. Toolchain Install
-            cmd_tools = r'C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --needed --noconfirm mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"'
+            cmd_tools = r'C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --needed --noconfirm mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-llvm mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"'
             self.execute_command(cmd_tools, "Installing Toolchain (Clang, LLD, QEMU, mtools)...", stream=True)
 
             self.ui_queue.put(("COMPLETE", None, None))
