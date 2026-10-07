@@ -399,7 +399,7 @@ class XdevSetupWizard:
             self.init_pacman_keys_and_sync(max_retries=3, timeout_seconds=120)
 
             # 8. Toolchain Install
-            cmd_tools = r'C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"'
+            cmd_tools = r'C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --needed --noconfirm mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"'
             self.execute_command(cmd_tools, "Installing Toolchain (Clang, LLD, QEMU, mtools)...", stream=True)
 
             self.ui_queue.put(("COMPLETE", None, None))
