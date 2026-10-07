@@ -72,6 +72,7 @@ def run_doctor():
             if res.returncode == 0:
                 first_line = res.stdout.splitlines()[0] if res.stdout else "available"
                 print(f"  found {name:<20} -> {first_line}")
+                print(f"--> WATCHING COMMAND: {' '.join(cmd)}")
             else:
                 print(f"  missing {name}")
                 all_ok = False
@@ -109,12 +110,19 @@ def run_build(extra_args=None):
             env["PATH"] = ";".join(additions) + ";" + existing_path
         env["MSYSTEM"] = "UCRT64"
 
+    # --- DEBUG / VERBOSE LOGS (Added here where variables are initialized) ---
+    print(f"DEBUG: Working Directory -> {xeneva_proj}")
+    print(f"DEBUG: Make Binary -> {make_bin}")
+    print(f"DEBUG: PATH env -> {env.get('PATH')}")
+    # ------------------------------------------------------------------------
+
     # If user provided explicit arguments:
     if extra_args:
         first = extra_args[0]
         if first in ("BootAA64", "KernelAA64", "Boot", "Kernel"):
             target_args = extra_args[1:] if len(extra_args) > 1 else ["llvm"]
             cmd = [make_bin, "-C", first] + target_args
+            print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
             try:
                 res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
                 return res.returncode
@@ -127,16 +135,19 @@ def run_build(extra_args=None):
                 ret = 0
                 for comp in ["Libs/XEClib", "Libs/Chitralekha", "BootAA64", "KernelAA64"]:
                     if os.path.exists(os.path.join(xeneva_proj, comp, "Makefile")):
+                        print(f"--> RUNNING COMMAND: {make_bin} -C {comp} clean")
                         res = subprocess.run([make_bin, "-C", comp, "clean"], cwd=xeneva_proj, env=env)
                         if res.returncode != 0:
                             ret = res.returncode
                 return ret
             else:
                 cmd = [make_bin, "clean"]
+                print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
                 res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
                 return res.returncode
         else:
             cmd = [make_bin] + extra_args
+            print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
             try:
                 res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
                 return res.returncode
@@ -151,7 +162,7 @@ def run_build(extra_args=None):
         ("BootAA64", ["llvm"]),
         ("KernelAA64", ["llvm"])
     ]
-
+    # ... (rest of function remains unchanged)
     has_os_components = os.path.exists(os.path.join(xeneva_proj, "BootAA64", "Makefile"))
 
     if has_os_components:
@@ -160,6 +171,7 @@ def run_build(extra_args=None):
             if os.path.exists(comp_makefile):
                 print(f"xdev: building {comp}...")
                 cmd = [make_bin, "-C", comp] + targets
+                print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
                 res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
                 if res.returncode != 0:
                     sys.stderr.write(f"xdev: error building component {comp}\n")

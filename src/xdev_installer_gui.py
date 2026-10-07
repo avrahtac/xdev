@@ -249,6 +249,9 @@ class XdevSetupWizard:
             self.ui_queue.put(("LOG", None, f"\n[ERROR] Exited with code {process.returncode}\n"))
             raise subprocess.CalledProcessError(process.returncode, cmd_str)
 
+        # Before running pacman commands, update pacman.conf to ignore core runtime locks and mirror timeouts
+    
+
     def init_pacman_keys_and_sync(self, max_retries=3, timeout_seconds=120):
         """
         Initializes pacman keyring and synchronizes package repositories,
