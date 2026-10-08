@@ -48,7 +48,10 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    // 1. Configure XENEVA_PROJECT Environment Variable
+    // Update progress text on the installer UI
+    WizardForm.StatusLabel.Caption := 'Checking and provisioning build toolchain dependencies...';
+
+    // 1. Configure XENEVA_PROJECT
     XenevaPath := RepoDirPage.Values[0];
     if XenevaPath <> '' then
     begin
@@ -74,16 +77,18 @@ begin
         'Path', UserPath);
     end;
 
-    // 3. Dependency Check & Install: MSYS2 via Winget
+    // 3. Install MSYS2 if missing
     if not DirExists('C:\msys64') then
     begin
-      Exec('cmd.exe', '/c winget install --id MSYS2.MSYS2 -e --silent --accept-package-agreements --accept-source-agreements', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      WizardForm.StatusLabel.Caption := 'Installing MSYS2 base system via Winget...';
+      Exec('cmd.exe', '/c winget install --id MSYS2.MSYS2 -e --silent --accept-package-agreements --accept-source-agreements', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
     end;
 
-    // 4. Dependency Check & Install: Toolchain (Clang, LLD, QEMU, Make, Mtools, Dosfstools)
+    // 4. Install/Update pacman packages (Clang, LLD, QEMU, Make, Mtools, Dosfstools)
     if FileExists('C:\msys64\usr\bin\bash.exe') then
     begin
-      Exec('C:\msys64\usr\bin\bash.exe', '-lc "pacman -Sy --noconfirm --needed mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      WizardForm.StatusLabel.Caption := 'Syncing toolchain packages (Clang, LLD, QEMU, Mtools)...';
+      Exec('C:\msys64\usr\bin\bash.exe', '-lc "pacman -Syu --needed --noconfirm mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end;
   end;
 end;
