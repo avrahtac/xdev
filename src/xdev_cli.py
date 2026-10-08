@@ -32,6 +32,38 @@ run options:
 def print_help():
     print(COMMANDS_SUMMARY.strip())
 
+def run_update():
+    """Download and overwrite xdev.exe with the latest GitHub release."""
+    import urllib.request
+    import json
+
+    print("xdev: checking for updates...")
+    api_url = "https://api.github.com/repos/YOUR_GITHUB_USERNAME/xdev/releases/latest"
+    
+    try:
+        req = urllib.request.Request(api_url, headers={'User-Agent': 'xdev-cli'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            latest_version = data.get("tag_name", "")
+            
+            if latest_version == XDEV_VERSION:
+                print(f"xdev: already up-to-date ({XDEV_VERSION}).")
+                return 0
+            
+            print(f"xdev: new version found: {latest_version} (current: {XDEV_VERSION})")
+            for asset in data.get("assets", []):
+                if asset["name"] == "xdev-setup.exe":
+                    download_url = asset["browser_download_url"]
+                    print(f"xdev: downloading latest setup from {download_url}...")
+                    installer_path = os.path.join(os.environ.get("TEMP", "."), "xdev-setup.exe")
+                    urllib.request.urlretrieve(download_url, installer_path)
+                    print("xdev: launching updater...")
+                    subprocess.Popen([installer_path, "/SILENT"])
+                    return 0
+    except Exception as e:
+        sys.stderr.write(f"xdev: error checking for updates: {e}\n")
+        return 1
+    
 def get_xeneva_project():
     proj = os.environ.get("XENEVA_PROJECT")
     if not proj:
