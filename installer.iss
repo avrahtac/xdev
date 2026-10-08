@@ -1,6 +1,7 @@
 ;
-; xdev Toolchain Installer Script
+; xdev Toolchain Complete Installer Script
 ; Copyright (c) 2026 Atharva Chitale & XenevaOS Team
+; Distributed under BSD 2-Clause License
 ;
 
 [Setup]
@@ -15,13 +16,14 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
 WizardStyle=modern
 PrivilegesRequired=admin
+LicenseFile=LICENSE
 
 [Files]
-; Copy single-file xdev.exe CLI binary directly to install dir
+; Copy xdev.exe CLI binary directly to target directory
 Source: "dist\xdev.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
-Name: "envPath"; Description: "Add xdev and MSYS2 UCRT64 to System PATH"; Flags: checkedonce
+Name: "envPath"; Description: "Add xdev and MSYS2 binaries to System PATH"; Flags: checkedonce
 
 [Code]
 var
@@ -29,9 +31,9 @@ var
 
 procedure InitializeWizard;
 begin
-  // Custom Page to ask user for their XenevaOS repository location
-  RepoDirPage := CreateInputDirPage(wpSelectDir,
-    'Select XenevaOS Repository',
+  // Create interactive page asking user for XenevaOS repository location
+  RepoDirPage := CreateInputDirPage(wpLicense,
+    'Select XenevaOS Repository Location',
     'Where is your XenevaOS source code located?',
     'Select the folder where XenevaOS is cloned on your computer, then click Next.',
     False, '');
@@ -46,7 +48,7 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    // 1. Register XENEVA_PROJECT Environment Variable
+    // 1. Configure XENEVA_PROJECT Environment Variable
     XenevaPath := RepoDirPage.Values[0];
     if XenevaPath <> '' then
     begin
@@ -55,7 +57,7 @@ begin
         'XENEVA_PROJECT', XenevaPath);
     end;
 
-    // 2. Register System PATH
+    // 2. Configure System PATH
     if RegQueryStringValue(HKEY_LOCAL_MACHINE,
       'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
       'Path', UserPath) then
@@ -72,13 +74,13 @@ begin
         'Path', UserPath);
     end;
 
-    // 3. Install MSYS2 if missing via Winget
+    // 3. Dependency Check & Install: MSYS2 via Winget
     if not DirExists('C:\msys64') then
     begin
       Exec('cmd.exe', '/c winget install --id MSYS2.MSYS2 -e --silent --accept-package-agreements --accept-source-agreements', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end;
 
-    // 4. Install toolchain packages (clang, lld, qemu, make, mtools, dosfstools)
+    // 4. Dependency Check & Install: Toolchain (Clang, LLD, QEMU, Make, Mtools, Dosfstools)
     if FileExists('C:\msys64\usr\bin\bash.exe') then
     begin
       Exec('C:\msys64\usr\bin\bash.exe', '-lc "pacman -Sy --noconfirm --needed mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-qemu mingw-w64-ucrt-x86_64-mtools make dosfstools"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
