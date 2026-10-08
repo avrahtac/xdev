@@ -8,15 +8,14 @@ import sys
 import os
 import subprocess
 import shutil
-import urllib.request
 
-XDEV_VERSION = "1.3.0"
+XDEV_VERSION = "2.3.0"
 
 COMMANDS_SUMMARY = """usage: xdev <command> [<args>]
 
 commands:
   doctor                verify toolchain installation and environment dependencies
-  build                 compile the XenevaOS kernel and system components
+  build                 compile XenevaOS kernel, user processes, and pack fat.img
   run [options]         launch XenevaOS inside QEMU emulator
   fetch                 pull latest source/repository changes
   flash <target>        write target images to bootable storage / disk images
@@ -45,6 +44,7 @@ def get_xeneva_project():
 
 def run_doctor():
     all_ok = True
+
     xeneva_proj = os.environ.get("XENEVA_PROJECT")
     if xeneva_proj and os.path.isdir(xeneva_proj):
         print(f"XENEVA_PROJECT: {xeneva_proj}")
@@ -61,7 +61,8 @@ def run_doctor():
         ("lld", [r"C:\msys64\ucrt64\bin\ld.lld.exe", "--version"] if os.name == 'nt' else ["ld.lld", "--version"]),
         ("qemu-system-aarch64", [r"C:\msys64\ucrt64\bin\qemu-system-aarch64.exe", "--version"] if os.name == 'nt' else ["qemu-system-aarch64", "--version"]),
         ("make", [r"C:\msys64\usr\bin\make.exe", "--version"] if os.name == 'nt' else ["make", "--version"]),
-        ("mtools", [r"C:\msys64\ucrt64\bin\mcopy.exe", "-V"] if os.name == 'nt' else ["mcopy", "-V"])
+        ("mtools", [r"C:\msys64\ucrt64\bin\mcopy.exe", "-V"] if os.name == 'nt' else ["mcopy", "-V"]),
+        ("mkfs.fat", [r"C:\msys64\usr\bin\mkfs.fat.exe", "-v"] if os.name == 'nt' else ["mkfs.fat", "-v"])
     ]
 
     for name, cmd in tools:
@@ -78,12 +79,6 @@ def run_doctor():
             all_ok = False
 
     return 0 if all_ok else 1
-
-def download_progress(count, block_size, total_size):
-    if total_size > 0:
-        percent = int(count * block_size * 100 / total_size)
-        sys.stdout.write(f"\r  Downloading master image container... {min(percent, 100)}%")
-        sys.stdout.flush()
 
 def run_build(extra_args=None):
     if extra_args is None:
@@ -112,6 +107,12 @@ def run_build(extra_args=None):
             env["PATH"] = ";".join(additions) + ";" + existing_path
         env["MSYSTEM"] = "UCRT64"
 
+    sub_components_to_clean = [
+        "Libs/XEClib", "Libs/Chitralekha", "BootAA64", "KernelAA64",
+        "Process/Init", "Process/DeodhaiXR", "Process/NetManager",
+        "Process/DeoAudio", "Process/NTPd"
+    ]
+
     if extra_args:
         first = extra_args[0]
         if first in ("BootAA64", "KernelAA64", "Boot", "Kernel"):
@@ -128,7 +129,7 @@ def run_build(extra_args=None):
             has_subcomponents = any(os.path.isdir(os.path.join(xeneva_proj, d)) for d in ["BootAA64", "KernelAA64"])
             if has_subcomponents:
                 ret = 0
-                for comp in ["Libs/XEClib", "Libs/Chitralekha", "BootAA64", "KernelAA64"]:
+                for comp in sub_components_to_clean:
                     if os.path.exists(os.path.join(xeneva_proj, comp, "Makefile")):
                         print(f"--> RUNNING COMMAND: {make_bin} -C {comp} clean")
                         res = subprocess.run([make_bin, "-C", comp, "clean"], cwd=xeneva_proj, env=env)
@@ -140,21 +141,18 @@ def run_build(extra_args=None):
                 print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
                 res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
                 return res.returncode
-        else:
-            cmd = [make_bin] + extra_args
-            print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
-            try:
-                res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
-                return res.returncode
-            except Exception as e:
-                sys.stderr.write(f"xdev: error running make: {e}\n")
-                return 1
 
+    # Core components AND user-space apps required for UI startup
     core_components = [
         ("Libs/XEClib", ["llvm"]),
         ("Libs/Chitralekha", ["llvm"]),
         ("BootAA64", ["llvm"]),
-        ("KernelAA64", ["llvm"])
+        ("KernelAA64", ["llvm"]),
+        ("Process/Init", ["llvm"]),
+        ("Process/DeodhaiXR", ["llvm"]),
+        ("Process/NetManager", ["llvm"]),
+        ("Process/DeoAudio", ["llvm"]),
+        ("Process/NTPd", ["llvm"])
     ]
 
     has_os_components = os.path.exists(os.path.join(xeneva_proj, "BootAA64", "Makefile"))
@@ -168,52 +166,105 @@ def run_build(extra_args=None):
                 print(f"--> RUNNING COMMAND: {' '.join(cmd)}")
                 res = subprocess.run(cmd, cwd=xeneva_proj, env=env)
                 if res.returncode != 0:
-                    sys.stderr.write(f"xdev: error building component {comp}\n")
-                    return res.returncode
+                    print(f"xdev: warning: component {comp} build exited with status {res.returncode}")
 
-        # --- Master Image Handling & Synchronization ---
-        master_img = os.path.join(xeneva_proj, "initrd3.img")
-        
-        if not os.path.exists(master_img):
-            print("xdev: initrd3.img not found locally. Fetching latest release from GitHub...")
-            initrd_url = "https://github.com/manaskamal/XenevaOS/releases/download/xenevaos-ui-alpha-0.2/initrd3.img"
-            try:
-                urllib.request.urlretrieve(initrd_url, master_img, reporthook=download_progress)
-                print("\nxdev: download complete.")
-            except Exception as e:
-                print()
-                sys.stderr.write(f"xdev: error downloading initrd3.img: {e}\n")
+        # Tools binaries
+        mcopy_bin = r"C:\msys64\ucrt64\bin\mcopy.exe" if os.name == 'nt' else shutil.which("mcopy")
+        mkfs_bin = r"C:\msys64\usr\bin\mkfs.fat.exe" if os.name == 'nt' else shutil.which("mkfs.fat")
+        mmd_bin = r"C:\msys64\ucrt64\bin\mmd.exe" if os.name == 'nt' else shutil.which("mmd")
 
+        if not (mcopy_bin and mkfs_bin and mmd_bin):
+            sys.stderr.write("xdev: error: mtools or mkfs.fat missing in MSYS2 environment.\n")
+            return 1
+
+        # --- STEP 1: Build initrd2.img dynamically ---
+        initrd_img = os.path.join(xeneva_proj, "initrd2.img")
+        resources_dir = os.path.join(xeneva_proj, "Resources", "resources")
+
+        print("xdev: assembling 128 MB FAT32 ramdisk (initrd2.img)...")
+        initrd_size = 128 * 1024 * 1024
+        try:
+            with open(initrd_img, "wb") as f:
+                f.truncate(initrd_size)
+            subprocess.run([mkfs_bin, "-F", "32", initrd_img], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            sys.stderr.write(f"xdev: error creating initrd2.img: {e}\n")
+            return 1
+
+        # 1. Copy Resources/resources payload into initrd2.img
+        if os.path.isdir(resources_dir):
+            print("xdev: packing Resources/resources payload into initrd2.img...")
+            for root, dirs, files in os.walk(resources_dir):
+                for file in files:
+                    full_src = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_src, resources_dir).replace("\\", "/")
+                    
+                    if "/" in rel_path:
+                        sub_dir = rel_path.rsplit("/", 1)[0]
+                        subprocess.run([mmd_bin, "-D", "s", "-i", initrd_img, f"::/{sub_dir}"],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    subprocess.run([mcopy_bin, "-o", "-i", initrd_img, full_src, f"::/{rel_path}"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 2. Synchronize all built process binaries to the root (::/) of initrd2.img
+        apps_map = [
+            ("Process/Init/init.exe", "::/init.exe"),
+            ("Process/DeodhaiXR/deodxr.exe", "::/deodxr.exe"),
+            ("Process/NetManager/netmngr.exe", "::/netmngr.exe"),
+            ("Process/DeoAudio/deoaud.exe", "::/deoaud.exe"),
+            ("Process/NTPd/ntpd.exe", "::/ntpd.exe")
+        ]
+
+        for rel_src, target_path in apps_map:
+            full_app = os.path.join(xeneva_proj, rel_src)
+            if os.path.exists(full_app):
+                print(f"xdev: packing {rel_src} -> {target_path}...")
+                subprocess.run([mcopy_bin, "-o", "-i", initrd_img, full_app, target_path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                sys.stderr.write(f"xdev: warning: {rel_src} missing, skipping...\n")
+
+        # --- STEP 2: Build 512 MB fat.img (ESP) ---
+        fat_img = os.path.join(xeneva_proj, "fat.img")
+        print("xdev: assembling 512 MB FAT32 boot image (fat.img)...")
+        fat_size = 512 * 1024 * 1024
+        try:
+            with open(fat_img, "wb") as f:
+                f.truncate(fat_size)
+            subprocess.run([mkfs_bin, "-F", "32", "-n", "BOOTIMG", fat_img], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            sys.stderr.write(f"xdev: error creating fat.img: {e}\n")
+            return 1
+
+        # Create EFI Directory Structure
+        subprocess.run([mmd_bin, "-i", fat_img, "::/EFI"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([mmd_bin, "-i", fat_img, "::/EFI/BOOT"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([mmd_bin, "-i", fat_img, "::/EFI/XENEVA"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Sync Binaries into fat.img
         boot_efi = os.path.join(xeneva_proj, "BootAA64", "Build", "EFI", "BOOT", "BOOTAA64.EFI")
         if not os.path.exists(boot_efi):
             boot_efi = os.path.join(xeneva_proj, "BootAA64", "BOOTAA64.efi")
 
         kernel_exe = os.path.join(xeneva_proj, "KernelAA64", "KernelAA64.exe")
-        mcopy_bin = r"C:\msys64\ucrt64\bin\mcopy.exe" if os.name == 'nt' else shutil.which("mcopy")
-        mmd_bin = r"C:\msys64\ucrt64\bin\mmd.exe" if os.name == 'nt' else shutil.which("mmd")
 
-        if mcopy_bin and os.path.exists(master_img):
-            print("xdev: synchronizing binaries into master container filesystem...")
-            if mmd_bin and os.path.exists(mmd_bin):
-                subprocess.run([mmd_bin, "-D", "s", "-i", master_img, "::/EFI"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.run([mmd_bin, "-D", "s", "-i", master_img, "::/EFI/BOOT"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.run([mmd_bin, "-D", "s", "-i", master_img, "::/EFI/XENEVA"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(boot_efi):
+            subprocess.run([mcopy_bin, "-o", "-i", fat_img, boot_efi, "::/EFI/BOOT/BOOTAA64.EFI"])
+        else:
+            sys.stderr.write("xdev: error: BOOTAA64.efi missing!\n")
 
-            if os.path.exists(boot_efi):
-                subprocess.run([mcopy_bin, "-o", "-i", master_img, boot_efi, "::/EFI/BOOT/BOOTAA64.EFI"])
-            else:
-                sys.stderr.write("xdev: error: BOOTAA64.efi not found!\n")
+        if os.path.exists(kernel_exe):
+            subprocess.run([mcopy_bin, "-o", "-i", fat_img, kernel_exe, "::/EFI/XENEVA/xnkrnl.exe"])
+        else:
+            sys.stderr.write("xdev: error: KernelAA64.exe missing!\n")
 
-            if os.path.exists(kernel_exe):
-                subprocess.run([mcopy_bin, "-o", "-i", master_img, kernel_exe, "::/EFI/XENEVA/xnkrnl.exe"])
+        # Inject dynamically generated initrd2.img into fat.img
+        if os.path.exists(initrd_img):
+            print("xdev: copying initrd2.img into fat.img...")
+            subprocess.run([mcopy_bin, "-o", "-i", fat_img, initrd_img, "::/initrd2.img"])
 
-            # Sync local initrd2.img layer if available to match desktop configuration
-            local_initrd2 = os.path.join(xeneva_proj, "initrd2.img")
-            if os.path.exists(local_initrd2):
-                print("xdev: synchronizing local initrd2.img payload layer...")
-                subprocess.run([mcopy_bin, "-o", "-i", master_img, local_initrd2, "::/initrd2.img"])
-
-        print("xdev: build complete successfully.")
+        print("xdev: build & image packing completed successfully!")
         return 0
     else:
         cmd = [make_bin]
@@ -226,10 +277,8 @@ def run_build(extra_args=None):
 
 def find_compiled_image(project_dir):
     candidates = [
-        "initrd3.img",
         "fat.img",
-        "initrd2.img",
-        os.path.join("Build", "initrd3.img")
+        os.path.join("Build", "fat.img")
     ]
     for rel in candidates:
         full = os.path.join(project_dir, rel)
@@ -299,7 +348,7 @@ def run_qemu(extra_args=None):
 
     img_path = find_compiled_image(xeneva_proj)
     if not img_path:
-        sys.stderr.write("xdev: error: compiled OS image not found in XENEVA_PROJECT. Run 'xdev build' first.\n")
+        sys.stderr.write("xdev: error: fat.img not found in XENEVA_PROJECT. Run 'xdev build' first.\n")
         return 1
 
     qemu_name, qemu_bin = find_qemu_binary()
