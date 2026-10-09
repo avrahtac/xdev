@@ -94,12 +94,6 @@ xdev build clean
 xdev build KernelAA64 clean
 ```
 
-The full build order is:
-
-```text
-XEClib -> Chitralekha -> BootAA64 -> KernelAA64
-```
-
 After the build, `fat.img` is updated with the generated `BOOTAA64.EFI`, `xnkrnl.exe`, and `initrd2.img`.
 
 `Tools/` contains Linux XR tools and is skipped on Windows.
