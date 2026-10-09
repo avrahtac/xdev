@@ -47,7 +47,7 @@ msg "BSD 2-Clause License"
 cat << "EOF"
 
 Copyright (c) 2020-2026 Manas Kamal Choudhary and XenevaOS Team
-xdev CLI Engine (c) 2026 Atharva Chitale
+xdev (c) 2026 Atharva Chitale
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:

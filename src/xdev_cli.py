@@ -9,7 +9,7 @@ import os
 import subprocess
 import shutil
 
-XDEV_VERSION = "3.2.0"
+XDEV_VERSION = "0.1.0-alpha"
 
 COMMANDS_SUMMARY = """usage: xdev <command> [<args>]
 
@@ -38,7 +38,7 @@ def run_update():
     import json
 
     print("xdev: checking for updates...")
-    api_url = "https://api.github.com/repos/YOUR_GITHUB_USERNAME/xdev/releases/latest"
+    api_url = ""
     
     try:
         req = urllib.request.Request(api_url, headers={'User-Agent': 'xdev-cli'})

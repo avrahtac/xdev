@@ -1,8 +1,9 @@
+```markdown
 # xdev
 
 CLI toolchain for [XenevaOS](https://github.com/manasakamal/XenevaOS). Builds the OS, runs it in QEMU. Works on Windows, Linux, macOS.
 
-Maintained by [Atharva Chitale](https://github.com/atharvachitale).  
+Maintained by [Atharva Chitale](https://github.com/avrahtac).  
 Kept separate from the main XenevaOS repo intentionally.
 
 ---
@@ -16,29 +17,24 @@ Download and run `xdev-setup.exe` from [Releases](../../releases). It installs M
 Then set `XENEVA_PROJECT`:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("XENEVA_PROJECT", "D:\XenevaOS", "User")
+[System.Environment]::SetEnvironmentVariable("XENEVA_PROJECT", "X:\XenevaOS", "User")
+
 ```
 
-Restart your terminal.
+Set X as you Drive path and Restart your terminal.
 
-### Linux / macOS
+### Linux
 
-Install dependencies:
+Run this single command in your terminal to install `xdev`:
 
 ```bash
-# Arch
-sudo pacman -S clang lld make qemu-system-aarch64 mtools git
+curl -fsSL [https://raw.githubusercontent.com/avrahtac/xdev/main/install.sh](https://raw.githubusercontent.com/avrahtac/xdev/main/install.sh) | bash
 
-# Debian/Ubuntu
-sudo apt install clang lld make qemu-system-arm mtools git
-
-# macOS
-brew install llvm make qemu mtools git
 ```
 
-```bash
-export XENEVA_PROJECT=/path/to/XenevaOS
-```
+### macOS
+
+Coming soon.
 
 ---
 
@@ -50,6 +46,7 @@ xdev build           build kernel + bootloader + libs
 xdev run             launch in QEMU
 xdev fetch           git pull inside XENEVA_PROJECT
 xdev flash <target>  write fat.img to a drive
+
 ```
 
 ### doctor
@@ -66,9 +63,11 @@ xdev build BootAA64          # bootloader only
 xdev build KernelAA64        # kernel only
 xdev build clean             # clean all
 xdev build KernelAA64 clean  # clean one component
+
 ```
 
-Updates `fat.img` with fresh `BOOTAA64.EFI`, `xnkrnl.exe`, and `initrd2.img` after build.  
+Updates `fat.img` with fresh `BOOTAA64.EFI`, `xnkrnl.exe`, and `initrd2.img` after build.
+
 `Tools/` (Linux XR tools) is skipped on Windows.
 
 ### run
@@ -80,10 +79,11 @@ xdev run --no-boot-menu         # skip UEFI menu, boot at 640x480
 xdev run --memory=2048M         # more RAM
 xdev run --smp=4                # more cores
 xdev run --headless             # no display, serial only
+
 ```
 
 | flag | default | values |
-|---|---|---|
+| --- | --- | --- |
 | `--resolution` | `640x480` | `640x480`, `800x600`, `1024x768` |
 | `--memory` | `1024M` | any QEMU memory string |
 | `--smp` | `2` | any integer |
@@ -96,8 +96,8 @@ Unknown flags are forwarded to QEMU directly.
 
 The UEFI bootloader shows a resolution picker on boot:
 
-| | resolution |
-|---|---|
+|  | resolution |
+| --- | --- |
 | Enter | 640×480 |
 | ↓ + Enter | 800×600 |
 | ↓↓ + Enter | 1024×768 |
@@ -105,8 +105,10 @@ The UEFI bootloader shows a resolution picker on boot:
 `--no-boot-menu` injects a `NOMENU` file into `fat.img` and skips straight to 640×480.
 
 Recommended:
+
 ```bash
 xdev run --resolution=1024x768 --memory=2048M --smp=4
+
 ```
 
 ### fetch
@@ -114,6 +116,7 @@ xdev run --resolution=1024x768 --memory=2048M --smp=4
 ```bash
 xdev fetch           # git pull
 xdev fetch --rebase  # git pull --rebase
+
 ```
 
 ### flash
@@ -121,6 +124,7 @@ xdev fetch --rebase  # git pull --rebase
 ```bash
 xdev flash E:        # Windows
 xdev flash /dev/sdX  # Linux/macOS (uses dd, be careful)
+
 ```
 
 USB requirements for real hardware: GPT, FAT32, ≥2 GiB.
@@ -136,8 +140,10 @@ USB requirements for real hardware: GPT, FAT32, ≥2 GiB.
 **`missing` in doctor after setup** — reopen your terminal. If still missing, check MSYS2 UCRT64 shell manually: `clang --version`.
 
 **`clang++: not found` during build** — MSYS2 must be at `C:\msys64`, UCRT64 variant:
+
 ```
 pacman -S mingw-w64-ucrt-x86_64-clang
+
 ```
 
 **pacman timeout during setup** — the installer retries 3 times. Check your connection.
@@ -154,6 +160,7 @@ tests/test_cli.py         pytest suite (27 tests)
 tests/test_installer.py   pytest suite (4 tests)
 dist/xdev.exe             packaged CLI
 dist/xdev-setup.exe       packaged installer
+
 ```
 
 ## Dev
@@ -165,4 +172,9 @@ pyinstaller --noconfirm xdev.spec
 pyinstaller --noconfirm xdev-setup.spec
 Copy-Item dist\xdev.exe xdev.exe -Force
 Copy-Item dist\xdev-setup.exe xdev-setup.exe -Force
+
+```
+
+```
+
 ```

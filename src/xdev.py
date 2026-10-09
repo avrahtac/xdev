@@ -11,7 +11,7 @@ import subprocess
 import shutil
 import urllib.request
 
-XDEV_VERSION = "3.9.0"
+XDEV_VERSION = "0.1.0-alpha"
 RELEASE_INITRD_URL = "https://github.com/manaskamal/XenevaOS/releases/download/xenevaos-ui-alpha-0.2/initrd3.img"
 
 COMMANDS_SUMMARY = """usage: xdev <command> [<args>]
@@ -50,10 +50,34 @@ def get_xeneva_project():
     return proj
 
 def run_clean(extra_args=None):
+    if extra_args is None:
+        extra_args = []
+
     xeneva_proj = get_xeneva_project()
     if not xeneva_proj:
         return 1
 
+    make_bin = shutil.which("make")
+    if not make_bin:
+        sys.stderr.write("xdev: error: make binary not found in environment.\n")
+        return 1
+
+    # Filter out literal 'clean' keyword if passed down from 'xdev build <target> clean'
+    targets = [arg for arg in extra_args if arg.lower() != "clean"]
+
+    # Target-specific clean (e.g., 'xdev clean KernelAA64' or 'xdev build KernelAA64 clean')
+    if targets:
+        print(f"xdev: cleaning specified target(s): {', '.join(targets)}...")
+        for target in targets:
+            target_path = os.path.join(xeneva_proj, target)
+            if os.path.exists(os.path.join(target_path, "Makefile")):
+                print(f"  -> cleaning {target}")
+                subprocess.run([make_bin, "-C", target_path, "clean"], cwd=xeneva_proj)
+            else:
+                sys.stderr.write(f"xdev: warning: no Makefile found in '{target}' ({target_path})\n")
+        return 0
+
+    # Full workspace clean ('xdev clean' or 'xdev build clean')
     print("xdev: cleaning build artifacts, caches, and images...")
     
     for img in ["fat.img", "initrd2.img", "initrd3.img"]:
@@ -62,15 +86,13 @@ def run_clean(extra_args=None):
             os.remove(img_path)
             print(f"  -> removed {img}")
 
-    make_bin = shutil.which("make")
-    if make_bin:
-        skip_keywords = ["gnu-efi", ".git", "Tools"]
-        for root, dirs, files in os.walk(xeneva_proj):
-            if any(kw in root for kw in skip_keywords):
-                continue
-            if "Makefile" in files:
-                rel_dir = os.path.relpath(root, xeneva_proj)
-                subprocess.run([make_bin, "-C", rel_dir, "clean"], cwd=xeneva_proj, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    skip_keywords = ["gnu-efi", ".git", "Tools"]
+    for root, dirs, files in os.walk(xeneva_proj):
+        if any(kw in root for kw in skip_keywords):
+            continue
+        if "Makefile" in files:
+            rel_dir = os.path.relpath(root, xeneva_proj)
+            subprocess.run([make_bin, "-C", rel_dir, "clean"], cwd=xeneva_proj, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     print("xdev: workspace successfully wiped clean!")
     return 0
