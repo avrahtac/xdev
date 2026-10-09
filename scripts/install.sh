@@ -103,7 +103,7 @@ if [ ${#MISSING_TOOLS[@]} -ne 0 ]; then
             sudo dnf install -y python3 git clang lld qemu-system-aarch64 make mtools dosfstools curl edk2-aarch64
         elif command -v apt &> /dev/null; then
             info "debian/ubuntu detected (apt)"
-            sudo apt update && sudo apt install -y python3 git clang lld qemu-system-arm build-essential mtools dosfstools curl edk2-qemu-efi
+            sudo apt update && sudo apt install -y python3 git clang lld qemu-system-aarch64 make mtools dosfstools curl qemu-efi-aarch64
         elif command -v zypper &> /dev/null; then
             info "opensuse detected (zypper)"
             sudo zypper install -y python3 git clang lld qemu-extra make mtools dosfstools curl qemu-uefi-aarch64
