@@ -81,7 +81,7 @@ esac
 # 2. Dependency Check & Universal Package Manager Fallback
 # -----------------------------------------------------------------------------
 msg "checking toolchain deps"
-REQUIRED_TOOLS=(python3 git clang ld.lld qemu-system-aarch64 make mcopy mkfs.fat curl)
+REQUIRED_TOOLS=(python3 git clang ld.lld llvm-ar make mcopy mkfs.fat curl)
 MISSING_TOOLS=()
 
 for tool in "${REQUIRED_TOOLS[@]}"; do
@@ -97,13 +97,13 @@ if [ ${#MISSING_TOOLS[@]} -ne 0 ]; then
     if [[ ! "$AUTO_INSTALL" =~ ^[nN]$ ]]; then
         if command -v pacman &> /dev/null; then
             info "arch detected (pacman)"
-            sudo pacman -Syu --needed --noconfirm python git clang lld qemu-system-aarch64 make mtools dosfstools curl edk2-armvirt
+            sudo pacman -Syu --needed --noconfirm python git clang lld llvm qemu-system-aarch64 make mtools dosfstools curl edk2-armvirt
         elif command -v dnf &> /dev/null; then
             info "fedora/rhel detected (dnf)"
-            sudo dnf install -y python3 git clang lld qemu-system-aarch64 make mtools dosfstools curl edk2-aarch64
+            ssudo dnf install -y python3 git clang lld llvm qemu-system-aarch64 make mtools dosfstools curl edk2-aarch64
         elif command -v apt &> /dev/null; then
             info "debian/ubuntu detected (apt)"
-            sudo apt update && sudo apt install -y python3 git clang lld qemu-system-arm build-essential mtools dosfstools curl qemu-efi-aarch64
+            sudo apt update && sudo apt install -y python3 git clang lld llvm qemu-system-arm build-essential mtools dosfstools curl qemu-efi-aarch64
         elif command -v zypper &> /dev/null; then
             info "opensuse detected (zypper)"
             sudo zypper install -y python3 git clang lld qemu-extra make mtools dosfstools curl qemu-uefi-aarch64

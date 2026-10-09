@@ -149,7 +149,7 @@ def run_doctor():
         print("XENEVA_PROJECT: not set or invalid")
         all_ok = False
 
-    tools = ["git", "clang", "ld.lld", "qemu-system-aarch64", "make", "mcopy", "mkfs.fat", "curl"]
+    tools = ["git", "clang", "ld.lld", "qemu-system-aarch64", "make", "mcopy", "mkfs.fat", "curl", "llvm-ar"]
     for t in tools:
         if shutil.which(t):
             print(f"  found {t:<20} -> {shutil.which(t)}")
@@ -209,11 +209,7 @@ def run_build(extra_args=None):
             subprocess.run(["git", "clone", "https://github.com/vathpela/gnu-efi.git", gnu_efi_dir])
 
     # --- 2. PRIORITY AND AUTONOMOUS COMPILATION ---
-    priority_dirs = ["XEClib",        # MUST be first
-    "Chitralekha",
-    "BootAA64",
-    "KernelAA64",
-]
+    priority_dirs = ["Libs/XEClib", "Libs/Chitralekha", "BootAA64", "KernelAA64"]
     built_dirs = set()
 
     print("xdev: compiling priority core components...")
