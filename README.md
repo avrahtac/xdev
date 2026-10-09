@@ -1,180 +1,225 @@
-```markdown
 # xdev
 
-CLI toolchain for [XenevaOS](https://github.com/manasakamal/XenevaOS). Builds the OS, runs it in QEMU. Works on Windows, Linux, macOS.
+A CLI toolchain for [XenevaOS](https://github.com/manasakamal/XenevaOS). 
 
-Maintained by [Atharva Chitale](https://github.com/avrahtac).  
-Kept separate from the main XenevaOS repo intentionally.
+Build the OS. Run it in QEMU.
 
+Works on Windows and Linux. macOS support is planned.
+
+Maintained by [Atharva Chitale](https://github.com/avrahtac). Kept separate from the main XenevaOS tree on purpose.
+
+>**Note:** As of Oct. 2026, `xdev` is in its alpha release stage and not stable. Features may break.  If you run into problems with XenevaOS itself (kernel, UI, drivers, etc.), report them in the [XenevaOS repository](https://github.com/manasakamal/XenevaOS). Use this repository for issues with `xdev` — its CLI, toolchain setup, build commands, or QEMU launcher.
 ---
 
 ## Setup
 
 ### Windows
 
-Download and run `xdev-setup.exe` from [Releases](../../releases). It installs MSYS2 (UCRT64) and the required packages. Needs admin.
+Download `xdev-setup.exe` from [Releases](https://github.com/avrahtac/xdev/releases) and run it. It installs MSYS2 (UCRT64) and the required packages. Administrator privileges are needed.
 
-Then set `XENEVA_PROJECT`:
+Set the path to your XenevaOS checkout:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("XENEVA_PROJECT", "X:\XenevaOS", "User")
-
+[System.Environment]::SetEnvironmentVariable(
+    "XENEVA_PROJECT",
+    "X:\XenevaOS",
+    "User"
+)
 ```
 
-Set X as you Drive path and Restart your terminal.
+Replace `X:\XenevaOS` with your actual repository path. Restart the terminal afterwards.
 
 ### Linux
 
-Run this single command in your terminal to install `xdev`:
+Run the installer:
 
 ```bash
-curl -fsSL [https://raw.githubusercontent.com/avrahtac/xdev/main/install.sh](https://raw.githubusercontent.com/avrahtac/xdev/main/install.sh) | bash
-
+curl -fsSL https://raw.githubusercontent.com/avrahtac/xdev/main/scripts/install.sh | bash
 ```
 
 ### macOS
 
-Coming soon.
+Not supported yet.
 
 ---
 
 ## Usage
 
-```
-xdev doctor          check environment and toolchain
-xdev build           build kernel + bootloader + libs
-xdev run             launch in QEMU
-xdev fetch           git pull inside XENEVA_PROJECT
-xdev flash <target>  write fat.img to a drive
-
-```
-
-### doctor
-
-Verifies `XENEVA_PROJECT` and checks for: `git`, `clang`, `lld`, `qemu-system-aarch64`, `make`, `mcopy`.
-
-Exit `0` = all good. Exit `1` = something missing.
-
-### build
+Start with `doctor`. It checks whether the toolchain is in place.
 
 ```bash
-xdev build                   # full build: XEClib → Chitralekha → BootAA64 → KernelAA64
-xdev build BootAA64          # bootloader only
-xdev build KernelAA64        # kernel only
-xdev build clean             # clean all
-xdev build KernelAA64 clean  # clean one component
-
+xdev doctor
+xdev build
+xdev run
 ```
 
-Updates `fat.img` with fresh `BOOTAA64.EFI`, `xnkrnl.exe`, and `initrd2.img` after build.
+That's the usual workflow: check, build, boot.
 
-`Tools/` (Linux XR tools) is skipped on Windows.
+### Commands
 
-### run
+| Command | What it does |
+| --- | --- |
+| `xdev doctor` | Check the environment |
+| `xdev build` | Build XenevaOS |
+| `xdev run` | Start QEMU |
+| `xdev fetch` | Pull changes in the XenevaOS checkout |
+| `xdev flash <target>` | Write `fat.img` to a drive |
+| `xdev version` | Print version |
+| `xdev help` | Show help |
+
+## Doctor
+
+Checks `XENEVA_PROJECT` and looks for the following tools:
+
+`git`, `clang`, `lld`, `qemu-system-aarch64`, `make`, `mcopy`.
+
+Exit code `0` means everything checked out. Exit code `1` means something is missing.
+
+## Build
+
+Build everything, or just the part you're working on.
 
 ```bash
-xdev run                        # 640x480, 1024M RAM, 2 cores
-xdev run --resolution=1024x768  # higher res (pick it in the UEFI menu)
-xdev run --no-boot-menu         # skip UEFI menu, boot at 640x480
-xdev run --memory=2048M         # more RAM
-xdev run --smp=4                # more cores
-xdev run --headless             # no display, serial only
+# Full build
+xdev build
 
+# One component
+xdev build BootAA64
+xdev build KernelAA64
+
+# Clean everything
+xdev build clean
+
+# Clean one component
+xdev build KernelAA64 clean
 ```
 
-| flag | default | values |
+The full build order is:
+
+```text
+XEClib -> Chitralekha -> BootAA64 -> KernelAA64
+```
+
+After the build, `fat.img` is updated with the generated `BOOTAA64.EFI`, `xnkrnl.exe`, and `initrd2.img`.
+
+`Tools/` contains Linux XR tools and is skipped on Windows.
+
+## Run
+
+Starts XenevaOS in QEMU. Defaults are 640×480, 1024 MB RAM, and 2 CPU cores.
+
+```bash
+# Default settings
+xdev run
+
+# Higher resolution
+xdev run --resolution=1024x768
+
+# Skip the UEFI menu
+xdev run --no-boot-menu
+
+# More memory and CPU cores
+xdev run --memory=2048M --smp=4
+
+# Serial output, no graphical display
+xdev run --headless
+```
+
+### Options
+
+| Option | Default | Values / meaning |
 | --- | --- | --- |
 | `--resolution` | `640x480` | `640x480`, `800x600`, `1024x768` |
-| `--memory` | `1024M` | any QEMU memory string |
-| `--smp` | `2` | any integer |
-| `--no-boot-menu` | off | — |
-| `--headless` | off | — |
+| `--memory` | `1024M` | QEMU memory string |
+| `--smp` | `2` | Number of CPU cores |
+| `--no-boot-menu` | Off | Skip the UEFI menu |
+| `--headless` | Off | No graphical display |
 
-Unknown flags are forwarded to QEMU directly.
+Unknown options are passed through to QEMU.
 
-#### Resolution menu
+### Resolution menu
 
-The UEFI bootloader shows a resolution picker on boot:
+The UEFI bootloader has a small resolution picker:
 
-|  | resolution |
+| Input | Resolution |
 | --- | --- |
-| Enter | 640×480 |
-| ↓ + Enter | 800×600 |
-| ↓↓ + Enter | 1024×768 |
+| `Enter` | 640×480 |
+| `↓`, then `Enter` | 800×600 |
+| `↓↓`, then `Enter` | 1024×768 |
 
-`--no-boot-menu` injects a `NOMENU` file into `fat.img` and skips straight to 640×480.
+`--no-boot-menu` puts a `NOMENU` file in `fat.img` and boots directly at 640×480.
 
-Recommended:
+A decent starting point if the default feels cramped:
 
 ```bash
 xdev run --resolution=1024x768 --memory=2048M --smp=4
-
 ```
 
-### fetch
+## Fetch
+
+Pull changes in the configured XenevaOS repository.
 
 ```bash
-xdev fetch           # git pull
-xdev fetch --rebase  # git pull --rebase
+# Normal pull
+xdev fetch
 
+# Pull with rebase
+xdev fetch --rebase
 ```
 
-### flash
+## Flash
+
+Write `fat.img` to a USB drive.
+
+**Windows**
+
+```powershell
+xdev flash E:
+```
+
+**Linux**
 
 ```bash
-xdev flash E:        # Windows
-xdev flash /dev/sdX  # Linux/macOS (uses dd, be careful)
-
+xdev flash /dev/sdX
 ```
 
-USB requirements for real hardware: GPT, FAT32, ≥2 GiB.
+Replace the target with the correct drive. On Linux, this uses `dd`, so double-check the device before proceeding. The wrong target means the wrong disk gets overwritten.
+
+For real hardware, the USB drive should use GPT, FAT32, and have at least 2 GiB of capacity.
 
 ---
 
 ## Troubleshooting
 
-**Black screen after boot** — wait ~10s. QEMU has two tabs (ramfb and virtio-gpu); click the second one. If still black: `xdev run --no-boot-menu` to rule out menu issues.
+**Black screen in QEMU**
 
-**UI lag** — `xdev run --memory=2048M --smp=4`.
+Give it a few seconds. If there are two display tabs, try the `virtio-gpu` one. Still stuck? Try `xdev run --no-boot-menu`.
 
-**`missing` in doctor after setup** — reopen your terminal. If still missing, check MSYS2 UCRT64 shell manually: `clang --version`.
+**Tools missing in `doctor`**
 
-**`clang++: not found` during build** — MSYS2 must be at `C:\msys64`, UCRT64 variant:
+Restart the terminal. On Windows, check that MSYS2 UCRT64 is installed and that `clang --version` works in its shell.
 
-```
+**`clang++: not found`**
+
+From the MSYS2 UCRT64 shell:
+
+```bash
 pacman -S mingw-w64-ucrt-x86_64-clang
-
 ```
 
-**pacman timeout during setup** — the installer retries 3 times. Check your connection.
+**Slow UI**
+
+Try giving QEMU more resources:
+
+```bash
+xdev run --memory=2048M --smp=4
+```
+
+**`pacman` timing out**
+
+Check the connection and try again. The Windows installer retries package installation up to three times.
 
 ---
 
-## Structure
+That's about it. Check the toolchain, build the thing, and boot it. Facing Issues? Feel free to raise a PR. 
 
-```
-src/xdev_cli.py           cross-platform CLI
-src/xdev_installer_gui.py Windows installer GUI
-src/build.cpp             C++ build engine (alternative backend)
-tests/test_cli.py         pytest suite (27 tests)
-tests/test_installer.py   pytest suite (4 tests)
-dist/xdev.exe             packaged CLI
-dist/xdev-setup.exe       packaged installer
-
-```
-
-## Dev
-
-```bash
-python -m pytest tests/ -v
-
-pyinstaller --noconfirm xdev.spec
-pyinstaller --noconfirm xdev-setup.spec
-Copy-Item dist\xdev.exe xdev.exe -Force
-Copy-Item dist\xdev-setup.exe xdev-setup.exe -Force
-
-```
-
-```
-
-```
