@@ -209,7 +209,11 @@ def run_build(extra_args=None):
             subprocess.run(["git", "clone", "https://github.com/vathpela/gnu-efi.git", gnu_efi_dir])
 
     # --- 2. PRIORITY AND AUTONOMOUS COMPILATION ---
-    priority_dirs = ["Libs/XEClib", "Libs/Chitralekha", "BootAA64", "KernelAA64"]
+    priority_dirs = ["XEClib",        # MUST be first
+    "Chitralekha",
+    "BootAA64",
+    "KernelAA64",
+]
     built_dirs = set()
 
     print("xdev: compiling priority core components...")
